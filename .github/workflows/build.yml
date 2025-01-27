@@ -1,36 +1,49 @@
-name: Build android package
+name: Build Source Engine APK
 
 on:
   push:
-    branches: [ con-wrappers ]
-  pull_request:
-    branches: [ con-wrappers ]
+    tags:
+      - "v*"  # 当推送以 "v" 开头的标签时触发构建
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      run: |
-        sudo apt-get update
-        sudo apt install -y make openjdk-8-jdk openjdk-8-jre ant-contrib python3-requests python3-pip
-        sudo pip3 install websocket-client
-        git clone --depth 1 https://gitlab.com/LostGamer/ndk-binaries
-        git clone --depth 1 https://gitlab.com/LostGamer/android-sdk
-        git clone --depth 1 https://github.com/nillerusr/srcsdk
-        cd srcsdk
-        git submodule init && git submodule update
-        cd ../
-        DEPLOY_BRANCH=srceng-old-port COMMIT=$(git rev-parse HEAD) scripts/workflow.sh
+      # 检出代码
+      - uses: actions/checkout@v4
 
-    - name: Upload files
-      shell: bash
-      env:
-        DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
-        GH_TOKEN: ${{ secrets.API_GITHUB_TOKEN }}
-      run: |
-        DEPLOY_BRANCH=srceng-old-port scripts/upload-to-github.sh bin/srceng-debug.apk version
-        CHANNEL_ID=801092155090927626 python3 scripts/send-to-discord.py "Commits history: https://github.com/nillerusr/srceng-android/commits/con-wrappers\nBuild: https://github.com/nillerusr/srceng-deploy/\nBuild finished at: $(date +%Y-%m-%d-%H:%M)"
+      # 设置 Java 环境
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
+      # 安装 Android SDK 和构建工具
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 8512546  # 可选：指定 cmdline-tools 版本（参考网页1）
+          packages: "platforms;android-34 build-tools;34.0.0"  # 安装特定构建工具
+
+      # 赋予 Gradle 执行权限（如果项目使用 Gradle）
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      # 执行构建命令（需根据项目实际构建命令调整）
+      - name: Build APK
+        run: |
+          ./gradlew assembleRelease  # 假设项目使用 Gradle
+          # 或根据项目文档替换为其他构建命令
+
+      # 处理生成的 APK 文件（重命名、移动等）
+      - name: Rename APK
+        run: |
+          mv app/build/outputs/apk/release/app-release.apk srceng-android_${{ github.ref_name }}.apk
+
+      # 发布到 GitHub Release
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: "*.apk"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          generateReleaseNotes: true
